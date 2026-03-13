@@ -1,0 +1,37 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local data, embeddings, media (large; stored on external drive)
+data/
+/embeddings/
+storage/
+*.npy
+*.jsonl
+*.wav
+*.mp3
+*.jpg
+*.jpeg
+*.png
+
+# Caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Config / logs
+run_config.json
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
