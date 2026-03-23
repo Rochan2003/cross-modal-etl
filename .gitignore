@@ -1,0 +1,19 @@
+venv/
+data/
+__pycache__/
+.DS_Store
+
+# --- Project Specific Data (Samsung T7) ---
+# Ignore processed embeddings and metadata
+/embeddings/
+*.npy
+*.jsonl
+
+# Ignore any local media files if they get copied
+*.wav
+*.mp3
+*.jpg
+*.png
+
+# Ignore Run Configs
+run_config.json

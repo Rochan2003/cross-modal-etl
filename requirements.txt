@@ -1,20 +1,23 @@
-# Deep Learning & Transformers
+# --- Core Deep Learning ---
 torch>=2.0.0
 torchvision>=0.15.0
 torchaudio>=2.0.0
 transformers>=4.30.0
 
-# Vector Database (Using GPU version for latency optimization if available, otherwise use faiss-cpu)
+# --- Vector Database ---
 faiss-cpu>=1.7.4
 
-# Audio & Image Processing
+# --- Audio & Image Processing ---
 librosa>=0.10.0
 Pillow>=9.5.0
+torchcodec>=0.1.0  # Crucial for the audio decoding we fixed today
 
-# Data Manipulation & Progress
+# --- Data & Dataset Management ---
 numpy>=1.24.0
 pandas>=2.0.0
+datasets>=2.12.0   # Required for Hugging Face AudioCaps loading
 tqdm>=4.65.0
 
-# Testing
+# --- Environment & Testing ---
 pytest>=7.3.1
+python-dotenv>=1.0.0
