@@ -30,9 +30,20 @@ def _ensure_float32(matrix: np.ndarray) -> np.ndarray:
 
 
 class FaissIPIndex:
-    """Inner-product index for L2-normalized vectors (dot product = cosine similarity)."""
+    """Inner-product index for L2-normalized vectors (dot product = cosine similarity).
 
-    def __init__(self, embeddings: np.ndarray, metadata: Sequence[Dict[str, Any]]):
+    Supports both exact (Flat) and approximate (HNSW) search.
+    """
+
+    def __init__(
+        self,
+        embeddings: np.ndarray,
+        metadata: Sequence[Dict[str, Any]],
+        use_hnsw: bool = False,
+        hnsw_m: int = 32,
+        hnsw_ef_construction: int = 200,
+        hnsw_ef_search: int = 128,
+    ):
         self._metadata = list(metadata)
         vectors = _ensure_float32(embeddings)
         if vectors.ndim != 2:
@@ -43,7 +54,14 @@ class FaissIPIndex:
             )
         vectors = _l2_normalize_rows(vectors)
         dim = vectors.shape[1]
-        index = faiss.IndexFlatIP(dim)
+
+        if use_hnsw:
+            index = faiss.IndexHNSWFlat(dim, hnsw_m, faiss.METRIC_INNER_PRODUCT)
+            index.hnsw.efConstruction = hnsw_ef_construction
+            index.hnsw.efSearch = hnsw_ef_search
+        else:
+            index = faiss.IndexFlatIP(dim)
+
         index.add(vectors)
         self._index = index
         self._dim = dim
@@ -79,6 +97,7 @@ class FaissIPIndex:
                 {
                     "rank": rank,
                     "score": float(score),
+                    "faiss_idx": int(idx),
                     "metadata": meta,
                 }
             )
@@ -110,21 +129,43 @@ class EmbeddingBundle:
         return embeddings, metadata
 
 
-def build_image_index(embeddings_dir: Path | str) -> FaissIPIndex:
+def build_image_index(embeddings_dir: Path | str, use_hnsw: bool = False) -> FaissIPIndex:
     bundle = EmbeddingBundle(
         embeddings_dir,
         "clip_image_embeddings.npy",
         "image_metadata.jsonl",
     )
     embeddings, metadata = bundle.load()
-    return FaissIPIndex(embeddings, metadata)
+    return FaissIPIndex(embeddings, metadata, use_hnsw=use_hnsw)
 
 
-def build_audio_index(embeddings_dir: Path | str) -> FaissIPIndex:
+def build_audio_index(embeddings_dir: Path | str, use_hnsw: bool = False) -> FaissIPIndex:
     bundle = EmbeddingBundle(
         embeddings_dir,
         "clap_audio_embeddings.npy",
         "audio_metadata.jsonl",
     )
     embeddings, metadata = bundle.load()
-    return FaissIPIndex(embeddings, metadata)
+    return FaissIPIndex(embeddings, metadata, use_hnsw=use_hnsw)
+
+
+def build_image_text_index(embeddings_dir: Path | str, use_hnsw: bool = False) -> FaissIPIndex:
+    """Index of CLIP text embeddings from image captions (for image→text search)."""
+    bundle = EmbeddingBundle(
+        embeddings_dir,
+        "clip_text_from_image_captions.npy",
+        "image_metadata.jsonl",
+    )
+    embeddings, metadata = bundle.load()
+    return FaissIPIndex(embeddings, metadata, use_hnsw=use_hnsw)
+
+
+def build_audio_text_index(embeddings_dir: Path | str, use_hnsw: bool = False) -> FaissIPIndex:
+    """Index of CLAP text embeddings from audio captions (for audio→text search)."""
+    bundle = EmbeddingBundle(
+        embeddings_dir,
+        "clap_text_from_audio_captions.npy",
+        "audio_metadata.jsonl",
+    )
+    embeddings, metadata = bundle.load()
+    return FaissIPIndex(embeddings, metadata, use_hnsw=use_hnsw)

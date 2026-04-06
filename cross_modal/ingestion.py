@@ -1,25 +1,45 @@
+import logging
 import os
 import json
 import torch
 import torchaudio
+from collections import defaultdict
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
 from datasets import load_dataset
 
+logger = logging.getLogger(__name__)
+
 
 class VisualDataset(Dataset):
-    """Data loader for MS COCO images and captions."""
+    """Data loader for MS COCO images, deduplicated by image_id.
+
+    Each item corresponds to one unique image. Captions are joined with ' | '
+    so that every image is embedded exactly once.
+    """
 
     def __init__(self, image_dir, annotation_file):
         self.image_dir = image_dir
+        self._warned_missing = False
 
-        # Load the COCO JSON file
         with open(annotation_file, 'r') as f:
             data = json.load(f)
-            self.annotations = data['annotations']
 
-            # Visual Norm: Resize 224x224 and normalize for CLIP
+        # Deduplicate: group captions by image_id, keep one entry per image
+        captions_by_id = defaultdict(list)
+        for ann in data['annotations']:
+            captions_by_id[ann['image_id']].append(ann['caption'])
+
+        self.entries = []
+        for image_id, captions in captions_by_id.items():
+            self.entries.append({
+                "image_id": image_id,
+                "caption": captions[0],
+                "all_captions": captions,
+            })
+
+        # Visual Norm: Resize 224x224 and normalize for CLIP
         self.transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
@@ -28,38 +48,56 @@ class VisualDataset(Dataset):
         ])
 
     def __len__(self):
-        return len(self.annotations)
+        return len(self.entries)
 
     def __getitem__(self, idx):
-        ann = self.annotations[idx]
-        img_id = str(ann['image_id']).zfill(12)
-        caption = ann['caption']
+        entry = self.entries[idx]
+        img_id = str(entry['image_id']).zfill(12)
+        caption = entry['caption']
 
         img_path = os.path.join(self.image_dir, f"{img_id}.jpg")
 
         try:
             image = Image.open(img_path).convert("RGB")
             image = self.transform(image)
+            valid = True
         except Exception as e:
-            # Fallback for missing/corrupt images to prevent pipeline crashes
+            if not self._warned_missing:
+                logger.warning(
+                    "Failed to load image %s: %s — further warnings suppressed. "
+                    "Check that --image-dir points to the folder containing .jpg files "
+                    "(e.g. .../train2017, not .../images).",
+                    img_path, e,
+                )
+                self._warned_missing = True
             image = torch.zeros((3, 224, 224))
+            valid = False
 
-        return {"image": image, "caption": caption, "id": img_id}
+        return {"image": image, "caption": caption, "id": img_id, "valid": valid}
 
 
 class AudioDataset(Dataset):
     """Data loader for AudioCaps, reading directly from the Hugging Face cache."""
 
-    def __init__(self, cache_dir, split="train", target_sr=44100, duration_sec=10):
+    def __init__(self, cache_dir, split="train", target_sr=48000, duration_sec=10,
+                 dataset_name="d0rj/audiocaps", caption_column="caption"):
         self.target_sr = target_sr
         self.target_length = target_sr * duration_sec
 
-        # Load directly from your external cache folder
+        # Load from Hugging Face, caching to external storage
         self.hf_dataset = load_dataset(
-            "TwinkStart/AudioCaps",
+            dataset_name,
             split=split,
-            cache_dir=cache_dir
+            cache_dir=cache_dir,
         )
+
+        # Detect caption column: some datasets use 'text' instead of 'caption'
+        if caption_column not in self.hf_dataset.column_names:
+            for fallback in ("text", "caption", "sentence"):
+                if fallback in self.hf_dataset.column_names:
+                    caption_column = fallback
+                    break
+        self.caption_column = caption_column
 
     def validate_audio(self, waveform):
         """Filter low-quality/silent clips by checking Root Mean Square energy."""
@@ -91,7 +129,7 @@ class AudioDataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.hf_dataset[idx]
-        caption = row['caption']
+        caption = row[self.caption_column]
 
         # Hugging Face automatically decodes the audio into a numpy array for us
         audio_array = row['audio']['array']

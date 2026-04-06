@@ -22,3 +22,6 @@ __pycache__/
 # --- Config & Logs ---
 run_config.json
 *.log
+
+# --- IDE ---
+.idea/

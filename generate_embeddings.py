@@ -143,17 +143,20 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--audio-cache-dir", help="HF cache directory for audio dataset")
     parser.add_argument("--audio-split", default="train", help="Audio dataset split")
-    parser.add_argument("--audio-dataset-name", default="TwinkStart/AudioCaps", help="HF dataset id")
+    parser.add_argument("--audio-dataset-name", default="d0rj/audiocaps", help="HF dataset id")
     parser.add_argument("--audio-limit", type=int, default=0, help="Optional max number of audio samples")
     parser.add_argument("--audio-target-sr", type=int, default=48000, help="Target SR for audio preprocessing")
     parser.add_argument("--audio-duration-sec", type=int, default=10, help="Fixed audio clip duration")
 
-    parser.add_argument("--clip-model", default="openai/clip-vit-base-patch32", help="CLIP model id")
-    parser.add_argument("--clap-model", default="laion/clap-htsat-unfused", help="CLAP model id")
+    parser.add_argument("--clip-model", default="openai/clip-vit-large-patch14", help="CLIP model id")
+    parser.add_argument("--clap-model", default="laion/larger_clap_music_and_speech", help="CLAP model id")
     parser.add_argument("--device", default=None, help="Computation device, e.g. mps, cuda, or cpu")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size for all encoders")
     parser.add_argument("--num-workers", type=int, default=2, help="DataLoader workers")
-    parser.add_argument("--skip-invalid", action="store_true", help="Skip corrupted samples if 'valid' key exists")
+    parser.add_argument("--skip-invalid", action="store_true", default=True,
+                        help="Skip corrupted/invalid samples (default: True)")
+    parser.add_argument("--no-skip-invalid", dest="skip_invalid", action="store_false",
+                        help="Include invalid samples (zero-filled fallback)")
     parser.add_argument("--disable-fp16", action="store_true", help="Disable FP16 inference on GPU")
 
     return parser.parse_args()
@@ -194,6 +197,7 @@ def main() -> None:
             split=args.audio_split,
             target_sr=args.audio_target_sr,
             duration_sec=args.audio_duration_sec,
+            dataset_name=args.audio_dataset_name,
         )
         audio_dataset = _subset_dataset(audio_dataset, args.audio_limit)
         audio_result = generate_audio_embeddings(

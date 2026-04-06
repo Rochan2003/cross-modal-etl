@@ -26,7 +26,7 @@ class CLIPEmbeddingEngine:
 
     def __init__(
         self,
-        model_name: str = "openai/clip-vit-base-patch32",
+        model_name: str = "openai/clip-vit-large-patch14",
         device: str | None = None,
         use_fp16: bool = True,
     ):
@@ -67,7 +67,7 @@ class CLAPEmbeddingEngine:
 
     def __init__(
         self,
-        model_name: str = "laion/clap-htsat-unfused",
+        model_name: str = "laion/larger_clap_music_and_speech",
         device: str | None = None,
         use_fp16: bool = True,
         sampling_rate: int = 48000,

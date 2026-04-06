@@ -17,7 +17,7 @@ def test_audio_normalization_padding(mock_load):
     normalized = dataset.normalize_audio(dummy_waveform, dummy_sr)
 
     # Expected: 1 channel, 10 seconds * 44100 Hz = 441000 samples
-    assert normalized.shape == (1, 441000), f"Expected shape (1, 441000), got {normalized.shape}"
+    assert normalized.shape == (1, 480000), f"Expected shape (1, 480000), got {normalized.shape}"
 
 
 @patch('cross_modal.ingestion.load_dataset')
@@ -31,7 +31,7 @@ def test_audio_normalization_truncation(mock_load):
 
     normalized = dataset.normalize_audio(dummy_waveform, dummy_sr)
 
-    assert normalized.shape == (1, 441000), f"Expected shape (1, 441000), got {normalized.shape}"
+    assert normalized.shape == (1, 480000), f"Expected shape (1, 480000), got {normalized.shape}"
 
 
 @patch('cross_modal.ingestion.load_dataset')

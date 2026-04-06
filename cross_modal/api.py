@@ -19,6 +19,7 @@ class HealthResponse(BaseModel):
 
 class SearchResponse(BaseModel):
     query: str
+    modality: str = "text"
     top_k: int
     image_results: list[Dict[str, Any]]
     audio_results: list[Dict[str, Any]]
