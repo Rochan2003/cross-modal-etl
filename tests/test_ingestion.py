@@ -7,7 +7,7 @@ from cross_modal.ingestion import AudioDataset, VisualDataset
 # We mock 'load_dataset' so the test doesn't try to download AudioCaps!
 @patch('cross_modal.ingestion.load_dataset')
 def test_audio_normalization_padding(mock_load):
-    """Test if short audio is correctly padded to 10 seconds at 44.1kHz."""
+    """Test if short audio is correctly padded to 10 seconds at 48kHz."""
     dataset = AudioDataset(cache_dir="dummy")
 
     # Create a dummy 3-second mono audio clip at 22050Hz
@@ -16,7 +16,7 @@ def test_audio_normalization_padding(mock_load):
 
     normalized = dataset.normalize_audio(dummy_waveform, dummy_sr)
 
-    # Expected: 1 channel, 10 seconds * 44100 Hz = 441000 samples
+    # Expected: 1 channel, 10 seconds * 48000 Hz = 480000 samples
     assert normalized.shape == (1, 480000), f"Expected shape (1, 480000), got {normalized.shape}"
 
 

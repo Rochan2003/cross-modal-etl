@@ -17,12 +17,12 @@ def _make_clip_engine():
         def fake_image_features(pixel_values):
             batch = pixel_values.shape[0]
             torch.manual_seed(42)
-            return torch.randn(batch, 512)
+            return torch.randn(batch, 768)
 
         def fake_text_features(**kwargs):
             batch = kwargs["input_ids"].shape[0]
             torch.manual_seed(99)
-            return torch.randn(batch, 512)
+            return torch.randn(batch, 768)
 
         mock_model.get_image_features.side_effect = fake_image_features
         mock_model.get_text_features.side_effect = fake_text_features
@@ -87,7 +87,7 @@ class TestCLIPEmbeddingEngine:
         embeddings = engine.encode_image_tensors(pixel_values)
 
         assert isinstance(embeddings, np.ndarray)
-        assert embeddings.shape == (4, 512)
+        assert embeddings.shape == (4, 768)
         norms = np.linalg.norm(embeddings, axis=1)
         np.testing.assert_allclose(norms, 1.0, atol=1e-5)
 
@@ -97,14 +97,14 @@ class TestCLIPEmbeddingEngine:
         embeddings = engine.encode_texts(texts)
 
         assert isinstance(embeddings, np.ndarray)
-        assert embeddings.shape == (3, 512)
+        assert embeddings.shape == (3, 768)
         norms = np.linalg.norm(embeddings, axis=1)
         np.testing.assert_allclose(norms, 1.0, atol=1e-5)
 
     def test_embeddings_are_nondegenerate(self):
         engine = _make_clip_engine()
         embeddings = engine.encode_image_tensors(torch.randn(1, 3, 224, 224))
-        assert embeddings.shape == (1, 512)
+        assert embeddings.shape == (1, 768)
         assert not np.allclose(embeddings, 0.0)
 
 

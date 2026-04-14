@@ -21,7 +21,7 @@ def validate_embeddings(embedding_path, metadata_path, modality_name):
     num_meta = len(metadata)
 
     print(f"Vectors found: {num_vectors}")
-    print(f"Dimensions: {dims} (Expected 512 for CLIP/CLAP)")
+    print(f"Dimensions: {dims} (Expected 768 for CLIP, 512 for CLAP)")
     print(f"Metadata entries: {num_meta}")
 
     if num_vectors != num_meta:

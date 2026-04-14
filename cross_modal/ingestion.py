@@ -105,12 +105,12 @@ class AudioDataset(Dataset):
         return rms_energy > 0.001
 
     def normalize_audio(self, waveform, sr):
-        """Audio Norm: Resample 44.1kHz, Mono, Pad/Truncate 10s."""
+        """Audio Norm: Resample to 48kHz, Mono, Pad/Truncate 10s."""
         # 1. Convert to Mono if stereo
         if waveform.shape[0] > 1:
             waveform = torch.mean(waveform, dim=0, keepdim=True)
 
-        # 2. Resample to 44.1kHz
+        # 2. Resample to 48kHz
         if sr != self.target_sr:
             resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=self.target_sr)
             waveform = resampler(waveform)
