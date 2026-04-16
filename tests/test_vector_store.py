@@ -19,6 +19,7 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
 
 
 def test_faiss_ip_index_self_match(tmp_path: Path) -> None:
+    # querying with a vector that's already in the index should return itself as #1
     rng = np.random.default_rng(0)
     dim = 8
     n = 20
@@ -33,6 +34,7 @@ def test_faiss_ip_index_self_match(tmp_path: Path) -> None:
 
 
 def test_top_k_clipped_to_index_size(tmp_path: Path) -> None:
+    # asking for top 100 when index only has 3 items shouldn't crash
     rng = np.random.default_rng(1)
     emb = rng.standard_normal((3, 4)).astype(np.float32)
     meta = [{"id": str(i), "caption": "x", "modality": "image"} for i in range(3)]
@@ -70,6 +72,7 @@ def test_build_indexes_from_disk(tmp_path: Path) -> None:
 
 
 def test_mismatched_metadata_raises() -> None:
+    # 2 embeddings but only 1 metadata entry should raise
     emb = np.zeros((2, 3), dtype=np.float32)
     meta = [{"id": "0"}]
     with pytest.raises(ValueError, match="Metadata length"):

@@ -14,6 +14,7 @@ def _resolve_device(device: str | None = None) -> torch.device:
 
 
 def _l2_normalize(embeddings: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
+    # normalize so dot product = cosine similarity
     return embeddings / torch.clamp(embeddings.norm(dim=-1, keepdim=True), min=eps)
 
 
@@ -22,7 +23,7 @@ def _to_numpy(embeddings: torch.Tensor) -> np.ndarray:
 
 
 class CLIPEmbeddingEngine:
-    """Wrapper around CLIP for image and text embedding generation."""
+    """CLIP encoder for images and text."""
 
     def __init__(
         self,
@@ -33,6 +34,7 @@ class CLIPEmbeddingEngine:
         self.device = _resolve_device(device)
         self.model = CLIPModel.from_pretrained(model_name).to(self.device).eval()
         self.tokenizer = CLIPTokenizerFast.from_pretrained(model_name)
+        # only use fp16 on cuda — avoids overflow issues on mps/cpu
         self.use_fp16 = bool(use_fp16 and self.device.type == "cuda")
         if self.use_fp16:
             self.model = self.model.half()
@@ -47,7 +49,7 @@ class CLIPEmbeddingEngine:
         return _to_numpy(embeddings)
 
     def encode_texts(self, texts: Iterable[str], max_length: int = 77) -> np.ndarray:
-        text_list = [text if text else "" for text in texts]
+        text_list = [text if text else "" for text in texts]  # handle None/empty
         tokens = self.tokenizer(
             text_list,
             return_tensors="pt",
@@ -63,7 +65,7 @@ class CLIPEmbeddingEngine:
 
 
 class CLAPEmbeddingEngine:
-    """Wrapper around CLAP for audio and text embedding generation."""
+    """CLAP encoder for audio and text."""
 
     def __init__(
         self,
@@ -90,6 +92,7 @@ class CLAPEmbeddingEngine:
         return prepared
 
     def encode_audio_tensors(self, waveforms: torch.Tensor) -> np.ndarray:
+        # squeeze out channel dim if present: (B, 1, T) -> (B, T)
         if waveforms.ndim == 3 and waveforms.shape[1] == 1:
             waveforms = waveforms[:, 0, :]
         audio_batch: List[np.ndarray] = [waveform.detach().cpu().numpy() for waveform in waveforms]

@@ -4,8 +4,9 @@ import torch
 from unittest.mock import MagicMock, patch
 
 
+# mock the actual models so tests don't need to download weights
 def _make_clip_engine():
-    """Create a CLIPEmbeddingEngine with mocked model to avoid downloading weights."""
+    """Set up a CLIP engine with fake weights for testing."""
     with patch("cross_modal.embedding.CLIPModel") as MockModel, \
          patch("cross_modal.embedding.CLIPTokenizerFast") as MockTokenizer:
 
@@ -102,6 +103,7 @@ class TestCLIPEmbeddingEngine:
         np.testing.assert_allclose(norms, 1.0, atol=1e-5)
 
     def test_embeddings_are_nondegenerate(self):
+        # make sure we're not getting all-zero vectors
         engine = _make_clip_engine()
         embeddings = engine.encode_image_tensors(torch.randn(1, 3, 224, 224))
         assert embeddings.shape == (1, 768)

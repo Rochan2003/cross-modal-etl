@@ -1,15 +1,4 @@
-"""Offline evaluation for cross-modal retrieval.
-
-Evaluates three retrieval paths:
-  1. **Text → Image** — CLIP text embeddings as queries against CLIP image embeddings.
-  2. **Text → Audio** — CLAP text embeddings as queries against CLAP audio embeddings.
-  3. **Image ↔ Audio (caption bridging)** — Cross-modal retrieval between image
-     and audio via shared caption semantics.  Uses CLIP text embeddings of image
-     captions as a proxy to find semantically related audio captions (and vice
-     versa), then checks whether the bridged retrieval returns relevant items.
-
-Metrics: Recall@1, Recall@5, Recall@K, MRR, mean query latency.
-"""
+"""Evaluation module — computes Recall@K, MRR, and latency for all retrieval paths."""
 
 from __future__ import annotations
 
@@ -23,9 +12,7 @@ import numpy as np
 from cross_modal.vector_store import FaissIPIndex, load_jsonl, _l2_normalize_rows
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 def _run_retrieval(
     index: FaissIPIndex,
@@ -70,9 +57,7 @@ def _run_retrieval(
     }
 
 
-# ---------------------------------------------------------------------------
-# Text → Media evaluation (Recall@K)
-# ---------------------------------------------------------------------------
+# Text-to-media evaluation
 
 def recall_at_k(
     query_embeddings: np.ndarray,
@@ -84,21 +69,8 @@ def recall_at_k(
     gallery_size: Optional[int] = None,
     seed: int = 42,
 ) -> Dict[str, Any]:
-    """Compute Recall@K and MRR for text-to-media retrieval.
-
-    A query is considered a *hit* when any gallery item sharing the same ``id``
-    appears in the top-K results.  This correctly handles the one-to-many
-    relationship between images and captions in COCO.
-
-    Parameters
-    ----------
-    gallery_size : int, optional
-        If set, randomly subsample the gallery to this many items before
-        building the FAISS index.  Ground-truth items for sampled queries
-        are always included so that Recall is well-defined.  Useful for
-        comparing against published numbers that use a smaller gallery
-        (e.g. 5K COCO test split).
-    """
+    """Compute Recall@K and MRR. If gallery_size is set, subsample the gallery
+    (keeping ground-truth items) for fair comparison with published numbers."""
     assert query_embeddings.shape[0] == len(query_metadata)
     assert gallery_embeddings.shape[0] == len(gallery_metadata)
 
@@ -111,22 +83,22 @@ def recall_at_k(
         indices = np.arange(n_queries)
         sample_size = n_queries
 
-    # Subsample gallery if requested
+    # Subsample gallery if requested (keep ground-truth items)
     if gallery_size and gallery_size < gallery_embeddings.shape[0]:
         n_gallery = gallery_embeddings.shape[0]
-        # Build a set of gallery indices that MUST be included (ground-truth
-        # items for the sampled queries, identified by matching id).
         query_ids = {query_metadata[qi]["id"] for qi in indices}
         required = {gi for gi in range(n_gallery) if gallery_metadata[gi]["id"] in query_ids}
 
-        # Fill remaining slots with random gallery items
-        available = np.array([gi for gi in range(n_gallery) if gi not in required])
         remaining_slots = max(0, gallery_size - len(required))
-        if remaining_slots < len(available):
-            extra = rng.choice(available, size=remaining_slots, replace=False)
+        if remaining_slots > 0:
+            available = np.array([gi for gi in range(n_gallery) if gi not in required])
+            if remaining_slots < len(available):
+                extra = rng.choice(available, size=remaining_slots, replace=False)
+            else:
+                extra = available
+            keep = sorted(required | set(extra.tolist()))
         else:
-            extra = available
-        keep = sorted(required | set(extra.tolist()))
+            keep = sorted(required)
 
         gallery_embeddings = gallery_embeddings[keep]
         gallery_metadata = [gallery_metadata[gi] for gi in keep]
@@ -186,9 +158,7 @@ def evaluate_modality(
     return result
 
 
-# ---------------------------------------------------------------------------
-# Image ↔ Audio caption-bridging evaluation
-# ---------------------------------------------------------------------------
+# Caption bridging evaluation
 
 def _build_bridge_ground_truth(
     image_text_emb: np.ndarray,
@@ -197,25 +167,10 @@ def _build_bridge_ground_truth(
     audio_meta: List[Dict[str, Any]],
     similarity_threshold: float = 0.75,
 ) -> Dict[str, List[int]]:
-    """Build proxy ground truth by finding image-audio pairs with similar captions.
-
-    Computes cosine similarity between CLIP text embeddings of image captions
-    and CLAP text embeddings of audio captions... but wait — these are in
-    different embedding spaces (CLIP 768-dim vs CLAP 512-dim) and can't be
-    directly compared.
-
-    Instead, we use the CLIP text embeddings of image captions and compare
-    them against CLIP text embeddings of audio captions (if available), or
-    fall back to keyword overlap on caption text.
-
-    Returns a mapping: image_index → [list of relevant audio_indices].
-    """
-    # Use caption text overlap as a semantic proxy.
-    # Tokenize captions into word sets and compute Jaccard similarity.
+    """Build proxy ground truth using Jaccard keyword overlap between image and audio captions."""
     image_word_sets = []
     for m in image_meta:
         words = set(m.get("caption", "").lower().split())
-        # Remove common stop words
         words -= {"a", "an", "the", "is", "are", "in", "on", "of", "and", "to",
                   "with", "at", "for", "it", "that", "this", "was", "from", "by"}
         image_word_sets.append(words)
@@ -227,7 +182,7 @@ def _build_bridge_ground_truth(
                   "with", "at", "for", "it", "that", "this", "was", "from", "by"}
         audio_word_sets.append(words)
 
-    # For each image, find audio clips whose captions share significant keywords
+    # Match image-audio pairs by keyword overlap
     ground_truth: Dict[str, List[int]] = {}
     for img_idx, img_words in enumerate(image_word_sets):
         if not img_words:
@@ -254,29 +209,10 @@ def evaluate_caption_bridging(
     similarity_threshold: float = 0.25,
     seed: int = 42,
 ) -> Dict[str, Any]:
-    """Evaluate image ↔ audio retrieval via caption bridging.
-
-    Since no dataset directly pairs COCO images with AudioCaps clips, we
-    create proxy ground truth: an image and audio are considered a match
-    if their captions share significant keyword overlap (Jaccard similarity
-    above the threshold).
-
-    We then test:
-      - Image → Audio: use CLIP text embeddings of image captions to search
-        the CLAP audio embedding index.  A hit = retrieved audio is in the
-        proxy ground-truth set for the query image.
-      - Audio → Image: use CLAP text embeddings of audio captions to search
-        the CLIP image embedding index.  A hit = retrieved image is in the
-        proxy ground-truth set for the query audio.
-
-    Note: since CLIP and CLAP text spaces are different, bridging uses the
-    text embeddings as an intermediary (matching captions in their respective
-    model's text space against the other model's media space).  This mirrors
-    how ``retrieval.py`` performs the bridging at search time.
-    """
+    """Evaluate image<>audio bridging using caption keyword overlap as proxy ground truth."""
     embeddings_dir = Path(embeddings_dir)
 
-    # Load all embeddings and metadata
+    # Load embeddings
     image_media_emb = np.load(embeddings_dir / "clip_image_embeddings.npy")
     image_text_emb = np.load(embeddings_dir / "clip_text_from_image_captions.npy")
     image_meta = load_jsonl(embeddings_dir / "image_metadata.jsonl")
@@ -285,7 +221,7 @@ def evaluate_caption_bridging(
     audio_text_emb = np.load(embeddings_dir / "clap_text_from_audio_captions.npy")
     audio_meta = load_jsonl(embeddings_dir / "audio_metadata.jsonl")
 
-    # Build proxy ground truth from caption keyword overlap
+    # Build ground truth
     ground_truth = _build_bridge_ground_truth(
         image_text_emb, image_meta,
         audio_text_emb, audio_meta,
@@ -298,7 +234,7 @@ def evaluate_caption_bridging(
             "reason": f"No image-audio pairs found at Jaccard threshold {similarity_threshold}",
         }
 
-    # Select sample of images that have ground-truth audio matches
+    # Sample queries
     image_indices_with_gt = list(ground_truth.keys())
     rng = np.random.RandomState(seed)
     if sample_size and sample_size < len(image_indices_with_gt):
@@ -307,23 +243,7 @@ def evaluate_caption_bridging(
         sampled_keys = image_indices_with_gt
         sample_size = len(sampled_keys)
 
-    # ----- Image → Audio bridging -----
-    # The bridge works by: image caption → CLAP text encoding → audio index
-    # We simulate this using the CLAP text embeddings of audio captions as
-    # the bridge space.  For evaluation, we use the CLIP text embedding of
-    # the image caption as the query, and search the CLAP audio index.
-    # But CLIP text (768d) ≠ CLAP audio (512d), so we can't directly search.
-    #
-    # Instead, we replicate what retrieval.py does: for each image, find its
-    # caption, then use the CLAP text embedding of that same caption concept
-    # to search the audio index.  Since we don't have CLAP encodings of image
-    # captions pre-computed, we use caption keyword matching to bridge:
-    # find audio items whose captions overlap with the image caption.
-    #
-    # For a quantitative metric, we check: does searching the audio index
-    # with audio text embeddings that are keyword-similar to the image caption
-    # return relevant results?
-
+    # Image → Audio
     audio_index = FaissIPIndex(audio_media_emb, audio_meta)
 
     img2aud_hits_at = {1: 0, 5: 0, top_k: 0}
@@ -334,9 +254,7 @@ def evaluate_caption_bridging(
         img_idx = int(img_idx_str)
         relevant_audio_indices = set(ground_truth[img_idx_str])
 
-        # Bridge: average the CLAP text embeddings of the ground-truth audio
-        # captions as the "bridged query" — this simulates what retrieval.py
-        # does (encode top captions with CLAP, average, search audio index)
+        # Build bridge query from matching captions
         bridge_vecs = audio_text_emb[list(relevant_audio_indices)]
         bridge_query = bridge_vecs.mean(axis=0)
         bridge_query = bridge_query / (np.linalg.norm(bridge_query) + 1e-12)
@@ -361,12 +279,8 @@ def evaluate_caption_bridging(
     n = len(sampled_keys)
     img2aud_recall = {k: hits / n for k, hits in img2aud_hits_at.items()}
 
-    # ----- Audio → Image bridging -----
-    # Reverse: for each audio that has ground-truth image matches, use the
-    # CLIP text embedding of matched image captions as bridge query into
-    # the image index.
-
-    # Invert ground truth: audio_idx → [image_indices]
+    # Audio → Image
+    # Flip ground truth for reverse direction
     reverse_gt: Dict[str, List[int]] = {}
     for img_idx_str, aud_indices in ground_truth.items():
         for aud_idx in aud_indices:
@@ -430,9 +344,7 @@ def evaluate_caption_bridging(
     }
 
 
-# ---------------------------------------------------------------------------
 # Full evaluation
-# ---------------------------------------------------------------------------
 
 def run_full_evaluation(
     embeddings_dir: Path | str,

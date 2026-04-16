@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from cross_modal.api import create_app
 
 
+# fake index so we don't need real FAISS data for API tests
 class _FakeIndex:
     def __init__(self, n: int) -> None:
         self.size = n
@@ -14,6 +15,7 @@ class _FakeIndex:
 
 @pytest.fixture
 def fake_retriever() -> MagicMock:
+    # mock retriever with canned search results
     r = MagicMock()
     r.embeddings_dir = Path("/tmp/fake_embeddings")
     r.image_index = _FakeIndex(42)
@@ -59,6 +61,7 @@ def test_health_and_search(fake_retriever: MagicMock) -> None:
 
 
 def test_search_rejects_empty_query(fake_retriever: MagicMock) -> None:
+    # empty query should get 422 validation error
     app = create_app(fake_retriever)
     with TestClient(app) as client:
         r = client.get("/search", params={"query": ""})

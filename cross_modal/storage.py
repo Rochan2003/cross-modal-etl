@@ -1,16 +1,4 @@
-"""Persistence helpers for embeddings and metadata.
-
-This module provides a unified interface for the save/load operations
-that are used across the pipeline:
-
-  - ``generate_embeddings.py`` writes .npy, .jsonl, and .json files
-  - ``vector_store.py`` reads .npy and .jsonl files via ``EmbeddingBundle``
-  - ``evaluation.py`` reads .npy and .jsonl files
-
-Rather than duplicating those implementations, this module re-exports
-the shared reader (``load_jsonl`` from ``vector_store``) and adds the
-corresponding write helpers so callers have a single import point.
-"""
+"""Save and load embeddings, metadata, and config files."""
 from __future__ import annotations
 
 import json
@@ -19,19 +7,19 @@ from typing import Any, Dict, Iterable, List
 
 import numpy as np
 
-# Re-export the canonical JSONL reader from vector_store
+# re-export so other modules can import from here
 from cross_modal.vector_store import load_jsonl  # noqa: F401
 
 
 def save_embeddings(embeddings: np.ndarray, path: Path | str) -> None:
-    """Save an embedding matrix to a ``.npy`` file."""
+    """Save embeddings to .npy file."""
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)  # create dirs if needed
     np.save(str(path), embeddings)
 
 
 def load_embeddings(path: Path | str) -> np.ndarray:
-    """Load an embedding matrix from a ``.npy`` file."""
+    """Load embeddings from .npy file."""
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(f"Embeddings file not found: {path}")
@@ -39,10 +27,7 @@ def load_embeddings(path: Path | str) -> np.ndarray:
 
 
 def save_metadata(records: Iterable[Dict[str, Any]], path: Path | str) -> None:
-    """Save metadata records as a ``.jsonl`` file (one JSON object per line).
-
-    This is the write counterpart to ``load_jsonl`` from ``vector_store``.
-    """
+    """Save metadata as a .jsonl file."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
@@ -51,7 +36,7 @@ def save_metadata(records: Iterable[Dict[str, Any]], path: Path | str) -> None:
 
 
 def save_run_config(config: Dict[str, Any], path: Path | str) -> None:
-    """Save a run configuration snapshot as a ``.json`` file."""
+    """Save run config as .json."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
@@ -59,7 +44,7 @@ def save_run_config(config: Dict[str, Any], path: Path | str) -> None:
 
 
 def load_run_config(path: Path | str) -> Dict[str, Any]:
-    """Load a run configuration snapshot from a ``.json`` file."""
+    """Load run config from .json."""
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(f"Config file not found: {path}")

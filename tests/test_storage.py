@@ -43,6 +43,7 @@ def test_run_config_roundtrip(tmp_path: Path) -> None:
 
 
 def test_save_creates_parent_dirs(tmp_path: Path) -> None:
+    # make sure nested directories get created automatically
     nested = tmp_path / "a" / "b" / "c" / "embeddings.npy"
     data = np.zeros((2, 4), dtype=np.float32)
     save_embeddings(data, nested)

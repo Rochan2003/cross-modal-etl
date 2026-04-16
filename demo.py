@@ -1,19 +1,6 @@
-"""Interactive cross-modal retrieval demo.
-
-Uses Flask (single-threaded) to avoid segfaults from torch/transformers
-on macOS Apple Silicon.
-
-Launch:
-    python demo.py [--embeddings-dir ...] [--image-dir ...] [--audio-wav-dir ...]
-
-Search modes:
-    Text  → Images + Audio
-    Image → Audio + Text + Similar Images
-    Audio → Images + Text + Similar Audio
-"""
+"""Flask demo for cross-modal search. Single-threaded to avoid torch segfaults on macOS."""
 from __future__ import annotations
 
-# ---- Environment guards: MUST come before any torch/numpy/transformers import ----
 import os
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -39,23 +26,18 @@ from torchvision import transforms
 
 from cross_modal.retrieval import CrossModalRetriever, DEFAULT_EMBEDDINGS_DIR
 
-# ---------------------------------------------------------------------------
-# Defaults
-# ---------------------------------------------------------------------------
 DEFAULT_IMAGE_DIR = "/Volumes/Samsung_T7/dataset/coco/images/train2017"
 DEFAULT_AUDIO_WAV_DIR = "/Volumes/Samsung_T7/dataset/audio_wav"
 
-# ---------------------------------------------------------------------------
-# Globals
-# ---------------------------------------------------------------------------
+# global state — set up in create_app()
 retriever: CrossModalRetriever | None = None
 image_dir: Path = Path(DEFAULT_IMAGE_DIR)
 audio_wav_dir: Path = Path(DEFAULT_AUDIO_WAV_DIR)
 
+# thread lock because CLIP/CLAP aren't thread-safe
 _inference_lock = threading.Lock()
 _encoders_loaded = False
 
-# CLIP image preprocessing (must match what was used for embeddings)
 _clip_transform = transforms.Compose([
     transforms.Resize(224, interpolation=transforms.InterpolationMode.BICUBIC),
     transforms.CenterCrop(224),
@@ -68,6 +50,7 @@ _clip_transform = transforms.Compose([
 
 
 def _ensure_encoders():
+    """Load CLIP/CLAP text encoders on first search (double-checked locking)."""
     global _encoders_loaded
     if _encoders_loaded:
         return
@@ -80,9 +63,7 @@ def _ensure_encoders():
         _encoders_loaded = True
 
 
-# ---------------------------------------------------------------------------
 # HTML frontend
-# ---------------------------------------------------------------------------
 HTML_PAGE = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -485,6 +466,7 @@ def create_app(args: argparse.Namespace) -> Flask:
     audio_wav_dir = Path(args.audio_wav_dir)
 
     print("[demo] Loading FAISS indexes...")
+    # force cpu — avoids MPS threading issues with Flask
     retriever = CrossModalRetriever(
         embeddings_dir=args.embeddings_dir,
         device="cpu",
@@ -499,13 +481,12 @@ def create_app(args: argparse.Namespace) -> Flask:
     print("[demo] Text encoders will load on first search request.")
 
     app = Flask(__name__)
-    app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max upload
+    app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
     @app.route("/")
     def index():
         return Response(HTML_PAGE, mimetype="text/html")
 
-    # --- Text search ---
     @app.route("/api/search/text")
     def search_text():
         query = request.args.get("query", "").strip()
@@ -521,7 +502,6 @@ def create_app(args: argparse.Namespace) -> Flask:
             traceback.print_exc()
             return jsonify({"error": str(e)}), 500
 
-    # --- Image search ---
     @app.route("/api/search/image", methods=["POST"])
     def search_image():
         if "file" not in request.files:
@@ -530,7 +510,6 @@ def create_app(args: argparse.Namespace) -> Flask:
         top_k = _parse_topk(request.form.get("top_k", "10"))
         try:
             _ensure_encoders()
-            # Read and preprocess image
             img = Image.open(io.BytesIO(file.read())).convert("RGB")
             pixel_values = _clip_transform(img).unsqueeze(0)  # (1, 3, 224, 224)
             with _inference_lock:
@@ -541,7 +520,6 @@ def create_app(args: argparse.Namespace) -> Flask:
             traceback.print_exc()
             return jsonify({"error": str(e)}), 500
 
-    # --- Audio search ---
     @app.route("/api/search/audio", methods=["POST"])
     def search_audio():
         if "file" not in request.files:
@@ -550,25 +528,20 @@ def create_app(args: argparse.Namespace) -> Flask:
         top_k = _parse_topk(request.form.get("top_k", "10"))
         try:
             _ensure_encoders()
-            # Read audio with soundfile or librosa
             import soundfile as sf
             audio_bytes = file.read()
             waveform, sr = sf.read(io.BytesIO(audio_bytes), dtype="float32")
-            # Convert to mono if stereo
             if waveform.ndim == 2:
                 waveform = waveform.mean(axis=1)
-            # Resample to 48kHz if needed
             target_sr = 48000
             if sr != target_sr:
                 import librosa
                 waveform = librosa.resample(waveform, orig_sr=sr, target_sr=target_sr)
-            # Pad or trim to 10 seconds
             max_len = target_sr * 10
             if len(waveform) > max_len:
                 waveform = waveform[:max_len]
             else:
                 waveform = np.pad(waveform, (0, max_len - len(waveform)))
-            # Shape: (1, samples) for CLAP
             waveform_tensor = torch.from_numpy(waveform).unsqueeze(0)
             with _inference_lock:
                 clap_vec = retriever.encode_audio(waveform_tensor)
@@ -578,7 +551,6 @@ def create_app(args: argparse.Namespace) -> Flask:
             traceback.print_exc()
             return jsonify({"error": str(e)}), 500
 
-    # --- Media serving ---
     @app.route("/media/image/<image_id>")
     def serve_image(image_id):
         padded = image_id.zfill(12)

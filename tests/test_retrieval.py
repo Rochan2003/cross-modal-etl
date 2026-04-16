@@ -13,6 +13,7 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
 
 
 def test_cross_modal_retriever_search_without_loading_encoders(tmp_path: Path) -> None:
+    # create small fake embeddings and test that search returns correct IDs
     rng = np.random.default_rng(42)
     dim = 8
     img_emb = rng.standard_normal((5, dim)).astype(np.float32)
@@ -32,6 +33,7 @@ def test_cross_modal_retriever_search_without_loading_encoders(tmp_path: Path) -
     r.load_indexes()
     clip_q = img_emb[2]
     clap_q = aud_emb[1]
+    # skip loading real encoders — just inject the vectors directly
     r.encode_query = lambda q: (clip_q, clap_q)  # type: ignore[method-assign]
 
     out = r.search("ignored", top_k=2)

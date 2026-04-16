@@ -9,6 +9,7 @@ import numpy as np
 
 
 def load_jsonl(path: Path) -> List[Dict[str, Any]]:
+    """Read a .jsonl file into a list of dicts."""
     records: List[Dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as file_obj:
         for line in file_obj:
@@ -52,9 +53,10 @@ class FaissIPIndex:
             raise ValueError(
                 f"Metadata length ({len(self._metadata)}) != embedding rows ({vectors.shape[0]})"
             )
-        vectors = _l2_normalize_rows(vectors)
+        vectors = _l2_normalize_rows(vectors)  # re-normalize just in case
         dim = vectors.shape[1]
 
+        # pick index type
         if use_hnsw:
             index = faiss.IndexHNSWFlat(dim, hnsw_m, faiss.METRIC_INNER_PRODUCT)
             index.hnsw.efConstruction = hnsw_ef_construction
@@ -75,6 +77,7 @@ class FaissIPIndex:
         return self._index.ntotal
 
     def search(self, query_vector: np.ndarray, top_k: int) -> List[Dict[str, Any]]:
+        # handle single vector (1D) input
         if query_vector.ndim == 1:
             query_vector = query_vector[np.newaxis, :]
         query = _l2_normalize_rows(_ensure_float32(query_vector))
@@ -82,7 +85,7 @@ class FaissIPIndex:
             raise ValueError(
                 f"Query dim {query.shape[1]} does not match index dim {self._dim}"
             )
-        k = min(int(top_k), self.size) if self.size else 0
+        k = min(int(top_k), self.size) if self.size else 0  # clamp to index size
         if k <= 0:
             return []
         scores, indices = self._index.search(query, k)
@@ -129,6 +132,7 @@ class EmbeddingBundle:
         return embeddings, metadata
 
 
+# convenience builders for each index type
 def build_image_index(embeddings_dir: Path | str, use_hnsw: bool = False) -> FaissIPIndex:
     bundle = EmbeddingBundle(
         embeddings_dir,

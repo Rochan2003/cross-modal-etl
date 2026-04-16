@@ -13,11 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class VisualDataset(Dataset):
-    """Data loader for MS COCO images, deduplicated by image_id.
-
-    Each item corresponds to one unique image. Captions are joined with ' | '
-    so that every image is embedded exactly once.
-    """
+    """COCO image loader. Deduplicates by image_id, uses first caption per image."""
 
     def __init__(self, image_dir, annotation_file):
         self.image_dir = image_dir
@@ -39,7 +35,7 @@ class VisualDataset(Dataset):
                 "all_captions": captions,
             })
 
-        # Visual Norm: Resize 224x224 and normalize for CLIP
+        # CLIP preprocessing
         self.transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
@@ -100,22 +96,19 @@ class AudioDataset(Dataset):
         self.caption_column = caption_column
 
     def validate_audio(self, waveform):
-        """Filter low-quality/silent clips by checking Root Mean Square energy."""
+        """Check if audio clip is too quiet."""
         rms_energy = torch.sqrt(torch.mean(waveform ** 2))
         return rms_energy > 0.001
 
     def normalize_audio(self, waveform, sr):
-        """Audio Norm: Resample to 48kHz, Mono, Pad/Truncate 10s."""
-        # 1. Convert to Mono if stereo
+        """Resample, convert to mono, fix length to 10s."""
         if waveform.shape[0] > 1:
             waveform = torch.mean(waveform, dim=0, keepdim=True)
 
-        # 2. Resample to 48kHz
         if sr != self.target_sr:
             resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=self.target_sr)
             waveform = resampler(waveform)
 
-        # 3. Pad or Truncate to exactly 10 seconds
         if waveform.shape[1] > self.target_length:
             waveform = waveform[:, :self.target_length]
         elif waveform.shape[1] < self.target_length:
@@ -131,18 +124,14 @@ class AudioDataset(Dataset):
         row = self.hf_dataset[idx]
         caption = row[self.caption_column]
 
-        # Hugging Face automatically decodes the audio into a numpy array for us
         audio_array = row['audio']['array']
         sr = row['audio']['sampling_rate']
 
-        # Convert numpy array to PyTorch tensor
         waveform = torch.tensor(audio_array).float()
 
-        # Ensure it has a channel dimension (1, length)
         if waveform.ndim == 1:
             waveform = waveform.unsqueeze(0)
 
-        # Validate and Normalize
         if not self.validate_audio(waveform):
             return {"audio": torch.zeros((1, self.target_length)), "caption": caption, "valid": False}
 

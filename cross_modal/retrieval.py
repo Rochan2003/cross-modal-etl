@@ -18,15 +18,7 @@ DEFAULT_EMBEDDINGS_DIR = "/Volumes/Samsung_T7/dataset/embeddings"
 
 
 class CrossModalRetriever:
-    """
-    Full cross-modal retrieval: text↔image, text↔audio, image↔audio.
-
-    Indexes:
-        image_index        – CLIP image embeddings  (query with CLIP image or text vectors)
-        audio_index        – CLAP audio embeddings  (query with CLAP audio or text vectors)
-        image_text_index   – CLIP text embeddings of image captions (query with CLIP image vectors)
-        audio_text_index   – CLAP text embeddings of audio captions (query with CLAP audio vectors)
-    """
+    """Handles all cross-modal search: text, image, and audio queries."""
 
     def __init__(
         self,
@@ -99,7 +91,7 @@ class CrossModalRetriever:
             raise RuntimeError("Audio index not loaded; call load_indexes() or load_all()")
         return self._audio_index
 
-    # ---- Encoding helpers ------------------------------------------------
+    # Encoding
 
     def encode_query(self, query: str) -> tuple[np.ndarray, np.ndarray]:
         """Encode text into both CLIP and CLAP spaces."""
@@ -121,7 +113,7 @@ class CrossModalRetriever:
             raise RuntimeError("CLAP encoder not loaded")
         return self._clap_engine.encode_audio_tensors(waveform)[0]
 
-    # ---- Search methods --------------------------------------------------
+    # Search
 
     def search(self, query: str, top_k: int = 10) -> Dict[str, Any]:
         """Text → Images + Audio (original search)."""
@@ -138,17 +130,11 @@ class CrossModalRetriever:
         }
 
     def search_by_image(self, clip_image_vec: np.ndarray, top_k: int = 10) -> Dict[str, Any]:
-        """Image → similar Images + Text captions + Audio (via caption bridge).
-
-        1. Search image index for visually similar images (+ their captions = text results)
-        2. Take top caption, encode with CLAP text encoder, search audio index
-        """
+        """Image search — find similar images, text captions, and audio via caption bridge."""
         k = max(1, int(top_k))
 
-        # Image → Images (direct CLIP similarity)
         image_hits = self.image_index.search(clip_image_vec, k)
 
-        # Image → Text: the captions from similar images ARE the text results
         text_results = []
         for hit in image_hits:
             text_results.append({
@@ -158,15 +144,13 @@ class CrossModalRetriever:
                 "source": f"image {hit['metadata'].get('id', '')}",
             })
 
-        # Image → Audio: bridge via caption → CLAP text encoding → audio index
+        # bridge to audio: take top captions, encode with CLAP, search audio index
         audio_hits = []
         if image_hits and self._clap_engine is not None:
-            # Use top-3 captions for more robust bridging
             bridge_captions = [h["metadata"].get("caption", "") for h in image_hits[:3]]
             bridge_captions = [c for c in bridge_captions if c]
             if bridge_captions:
                 clap_text_vecs = self._clap_engine.encode_texts(bridge_captions)
-                # Average the CLAP text vectors for a combined query
                 avg_vec = clap_text_vecs.mean(axis=0)
                 avg_vec = avg_vec / (np.linalg.norm(avg_vec) + 1e-12)
                 audio_hits = self.audio_index.search(avg_vec, k)
@@ -180,17 +164,11 @@ class CrossModalRetriever:
         }
 
     def search_by_audio(self, clap_audio_vec: np.ndarray, top_k: int = 10) -> Dict[str, Any]:
-        """Audio → similar Audio + Text captions + Images (via caption bridge).
-
-        1. Search audio index for similar audio (+ their captions = text results)
-        2. Take top caption, encode with CLIP text encoder, search image index
-        """
+        """Audio search — find similar audio, text captions, and images via caption bridge."""
         k = max(1, int(top_k))
 
-        # Audio → Audio (direct CLAP similarity)
         audio_hits = self.audio_index.search(clap_audio_vec, k)
 
-        # Audio → Text: the captions from similar audio ARE the text results
         text_results = []
         for hit in audio_hits:
             text_results.append({
@@ -200,7 +178,7 @@ class CrossModalRetriever:
                 "source": f"audio {hit['metadata'].get('id', '')}",
             })
 
-        # Audio → Images: bridge via caption → CLIP text encoding → image index
+        # bridge to images: take top captions, encode with CLIP, search image index
         image_hits = []
         if audio_hits and self._clip_engine is not None:
             bridge_captions = [h["metadata"].get("caption", "") for h in audio_hits[:3]]

@@ -44,12 +44,14 @@ def generate_visual_embeddings(
         num_workers: int,
         skip_invalid: bool,
 ) -> Dict[str, np.ndarray | List[Dict[str, str]]]:
+    """Encode all COCO images + captions through CLIP, return embeddings + metadata."""
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     image_vectors: List[np.ndarray] = []
     text_vectors: List[np.ndarray] = []
     metadata: List[Dict[str, str]] = []
 
     for batch in tqdm(loader, desc="Encoding images (CLIP)"):
+        # drop invalid samples (corrupt images, silent audio, etc.)
         if skip_invalid and "valid" in batch:
             valid = batch["valid"]
             if not isinstance(valid, torch.Tensor):
@@ -86,6 +88,7 @@ def generate_audio_embeddings(
         num_workers: int,
         skip_invalid: bool,
 ) -> Dict[str, np.ndarray | List[Dict[str, str]]]:
+    """Encode all audio clips + captions through CLAP, return embeddings + metadata."""
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     audio_vectors: List[np.ndarray] = []
     text_vectors: List[np.ndarray] = []
@@ -119,7 +122,6 @@ def generate_audio_embeddings(
         audio_vectors.append(clap_engine.encode_audio_tensors(audios))
         text_vectors.append(clap_engine.encode_texts(captions))
 
-        # Consistent metadata schema using "id" to match the image modality
         metadata.extend(
             {"id": str(sample_id), "caption": str(caption), "modality": "audio"}
             for sample_id, caption in zip(ids, captions)
@@ -166,6 +168,7 @@ def main() -> None:
     args = parse_args()
     output_dir = _ensure_dir(args.output_dir)
 
+    # import here so argparse --help doesn't need torch
     from cross_modal.embedding import CLAPEmbeddingEngine, CLIPEmbeddingEngine
 
     use_fp16 = not args.disable_fp16
@@ -177,6 +180,7 @@ def main() -> None:
         sampling_rate=args.audio_target_sr,
     )
 
+    # process images if paths provided
     if args.image_dir and args.coco_annotations:
         visual_dataset = VisualDataset(args.image_dir, args.coco_annotations)
         visual_dataset = _subset_dataset(visual_dataset, args.image_limit)
@@ -191,6 +195,7 @@ def main() -> None:
         np.save(output_dir / "clip_text_from_image_captions.npy", visual_result["text_embeddings"])
         _write_jsonl(output_dir / "image_metadata.jsonl", visual_result["metadata"])
 
+    # process audio if cache dir provided (downloads from HF if needed)
     if args.audio_cache_dir:
         audio_dataset = AudioDataset(
             cache_dir=args.audio_cache_dir,
@@ -211,6 +216,7 @@ def main() -> None:
         np.save(output_dir / "clap_text_from_audio_captions.npy", audio_result["text_embeddings"])
         _write_jsonl(output_dir / "audio_metadata.jsonl", audio_result["metadata"])
 
+    # save config so the run is reproducible
     run_config = {
         "clip_model": args.clip_model,
         "clap_model": args.clap_model,
@@ -224,7 +230,7 @@ def main() -> None:
     with (output_dir / "run_config.json").open("w", encoding="utf-8") as file_obj:
         json.dump(run_config, file_obj, indent=2, ensure_ascii=True)
 
-    print(f"\nSUCCESS! Embeddings and metadata written to: {output_dir}")
+    print(f"\nDone. Embeddings saved to {output_dir}")
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ class SearchResponse(BaseModel):
     audio_results: list[Dict[str, Any]]
 
 
+# shared across requests — loaded once at startup
 _retriever_singleton: Optional[CrossModalRetriever] = None
 
 
@@ -51,6 +52,7 @@ def create_app(retriever: Optional[CrossModalRetriever] = None) -> FastAPI:
 
     app = FastAPI(title="Cross-modal retrieval", version="0.1.0", lifespan=lifespan)
 
+    # health check — returns index sizes so we know everything loaded
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         r = get_retriever()
@@ -61,6 +63,7 @@ def create_app(retriever: Optional[CrossModalRetriever] = None) -> FastAPI:
             audio_index_size=r.audio_index.size,
         )
 
+    # text search — encodes query with CLIP+CLAP and searches both indexes
     @app.get("/search", response_model=SearchResponse)
     def search(
         query: str = Query(..., min_length=1, description="Natural language query"),
